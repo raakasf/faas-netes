@@ -1,6 +1,8 @@
+// License: OpenFaaS Community Edition (CE) EULA
+// Copyright (c) 2017,2019-2024 OpenFaaS Author(s)
+
 // Copyright (c) Alex Ellis 2017. All rights reserved.
 // Copyright 2020 OpenFaaS Author(s)
-// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 package handlers
 
@@ -16,11 +18,16 @@ import (
 	types "github.com/openfaas/faas-provider/types"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/client-go/listers/apps/v1"
-	glog "k8s.io/klog"
+	klog "k8s.io/klog"
 )
 
 // MaxReplicas licensed for OpenFaaS CE is 5/5
+// a license for OpenFaaS Standard is required to increase this limit.
 const MaxReplicas = 5
+
+// MaxFunctions licensed for OpenFaaS CE is 15
+// a license for OpenFaaS Standard is required to increase this limit.
+const MaxFunctions = 15
 
 // MakeReplicaReader reads the amount of replicas for a deployment
 func MakeReplicaReader(defaultNamespace string, lister v1.DeploymentLister) http.HandlerFunc {
@@ -39,7 +46,7 @@ func MakeReplicaReader(defaultNamespace string, lister v1.DeploymentLister) http
 		}
 
 		if lookupNamespace != defaultNamespace {
-			http.Error(w, fmt.Sprintf("valid namespaces are: %s", defaultNamespace), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("namespace must be: %s", defaultNamespace), http.StatusBadRequest)
 			return
 		}
 
@@ -47,8 +54,9 @@ func MakeReplicaReader(defaultNamespace string, lister v1.DeploymentLister) http
 
 		function, err := getService(lookupNamespace, functionName, lister)
 		if err != nil {
-			log.Printf("Unable to fetch service: %s %s\n", functionName, namespace)
+			log.Printf("Unable to fetch service: %s", functionName)
 			w.WriteHeader(http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("Unable to fetch service: %s", functionName), http.StatusInternalServerError)
 			return
 		}
 
@@ -58,13 +66,12 @@ func MakeReplicaReader(defaultNamespace string, lister v1.DeploymentLister) http
 		}
 
 		d := time.Since(s)
-		log.Printf("Replicas: %s.%s, (%d/%d) %dms\n", functionName, lookupNamespace, function.AvailableReplicas, function.Replicas, d.Milliseconds())
+		log.Printf("Replicas: %s.%s, (%d/%d) %dms", functionName, lookupNamespace, function.AvailableReplicas, function.Replicas, d.Milliseconds())
 
 		functionBytes, err := json.Marshal(function)
 		if err != nil {
-			glog.Errorf("Failed to marshal function: %s", err.Error())
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("Failed to marshal function"))
+			klog.Errorf("Failed to marshal function: %s", err.Error())
+			http.Error(w, "Failed to marshal function", http.StatusInternalServerError)
 			return
 		}
 

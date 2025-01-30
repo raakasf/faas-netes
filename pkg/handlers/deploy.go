@@ -1,6 +1,8 @@
+// License: OpenFaaS Community Edition (CE) EULA
+// Copyright (c) 2017,2019-2024 OpenFaaS Author(s)
+
 // Copyright (c) Alex Ellis 2017. All rights reserved.
 // Copyright 2020 OpenFaaS Author(s)
-// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 package handlers
 
@@ -19,7 +21,6 @@ import (
 
 	types "github.com/openfaas/faas-provider/types"
 	appsv1 "k8s.io/api/apps/v1"
-	apiv1 "k8s.io/api/core/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,11 +31,10 @@ import (
 const initialReplicasCount = 1
 
 // MakeDeployHandler creates a handler to create new functions in the cluster
-func MakeDeployHandler(functionNamespace string, factory k8s.FunctionFactory) http.HandlerFunc {
+func MakeDeployHandler(functionNamespace string, factory k8s.FunctionFactory, functionList *k8s.FunctionList) http.HandlerFunc {
 	secrets := k8s.NewSecretsClient(factory.Client)
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
 
 		if r.Body != nil {
 			defer r.Body.Close()
@@ -62,7 +62,7 @@ func MakeDeployHandler(functionNamespace string, factory k8s.FunctionFactory) ht
 		}
 
 		if namespace != functionNamespace {
-			http.Error(w, fmt.Sprintf("valid namespaces are: %s", functionNamespace), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("namespace must be: %s", functionNamespace), http.StatusBadRequest)
 			return
 		}
 
@@ -73,23 +73,12 @@ func MakeDeployHandler(functionNamespace string, factory k8s.FunctionFactory) ht
 			return
 		}
 
+		if err := isAnonymous(request.Image); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		deploymentSpec, specErr := makeDeploymentSpec(request, existingSecrets, factory)
-
-		var profileList []k8s.Profile
-		if request.Annotations != nil {
-			profileNamespace := factory.Config.ProfilesNamespace
-			profileList, err = factory.GetProfiles(ctx, profileNamespace, *request.Annotations)
-			if err != nil {
-				wrappedErr := fmt.Errorf("failed create Deployment spec: %s", err.Error())
-				log.Println(wrappedErr)
-				http.Error(w, wrappedErr.Error(), http.StatusBadRequest)
-				return
-			}
-		}
-		for _, profile := range profileList {
-			factory.ApplyProfile(profile, deploymentSpec)
-		}
-
 		if specErr != nil {
 			wrappedErr := fmt.Errorf("failed create Deployment spec: %s", specErr.Error())
 			log.Println(wrappedErr)
@@ -97,10 +86,21 @@ func MakeDeployHandler(functionNamespace string, factory k8s.FunctionFactory) ht
 			return
 		}
 
-		deploy := factory.Client.AppsV1().Deployments(namespace)
-
-		_, err = deploy.Create(context.TODO(), deploymentSpec, metav1.CreateOptions{})
+		count, err := functionList.Count()
 		if err != nil {
+			err := fmt.Errorf("unable to count functions: %s", err.Error())
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if count+1 > MaxFunctions {
+			err := fmt.Errorf("unable to create function, maximum: %d, visit https://openfaas.com/pricing to upgrade to OpenFaaS Standard", MaxFunctions)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		deploy := factory.Client.AppsV1().Deployments(namespace)
+		if _, err = deploy.Create(context.TODO(), deploymentSpec, metav1.CreateOptions{}); err != nil {
 			wrappedErr := fmt.Errorf("unable create Deployment: %s", err.Error())
 			log.Println(wrappedErr)
 			http.Error(w, wrappedErr.Error(), http.StatusInternalServerError)
@@ -131,7 +131,7 @@ func MakeDeployHandler(functionNamespace string, factory k8s.FunctionFactory) ht
 	}
 }
 
-func makeDeploymentSpec(request types.FunctionDeployment, existingSecrets map[string]*apiv1.Secret, factory k8s.FunctionFactory) (*appsv1.Deployment, error) {
+func makeDeploymentSpec(request types.FunctionDeployment, existingSecrets map[string]*corev1.Secret, factory k8s.FunctionFactory) (*appsv1.Deployment, error) {
 	envVars := buildEnvVars(&request)
 
 	initialReplicas := int32p(initialReplicasCount)
@@ -148,22 +148,10 @@ func makeDeploymentSpec(request types.FunctionDeployment, existingSecrets map[st
 		}
 	}
 
-	nodeSelector := createSelector(request.Constraints)
+	resources, err := createResources(request)
 
-	resources, resourceErr := createResources(request)
-
-	if resourceErr != nil {
-		return nil, resourceErr
-	}
-
-	var imagePullPolicy apiv1.PullPolicy
-	switch factory.Config.ImagePullPolicy {
-	case "Never":
-		imagePullPolicy = apiv1.PullNever
-	case "IfNotPresent":
-		imagePullPolicy = apiv1.PullIfNotPresent
-	default:
-		imagePullPolicy = apiv1.PullAlways
+	if err != nil {
+		return nil, err
 	}
 
 	annotations, err := buildAnnotations(request)
@@ -205,19 +193,19 @@ func makeDeploymentSpec(request types.FunctionDeployment, existingSecrets map[st
 				},
 			},
 			RevisionHistoryLimit: int32p(10),
-			Template: apiv1.PodTemplateSpec{
+			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:        request.Service,
 					Labels:      labels,
 					Annotations: annotations,
 				},
-				Spec: apiv1.PodSpec{
-					NodeSelector: nodeSelector,
-					Containers: []apiv1.Container{
+				Spec: corev1.PodSpec{
+					NodeSelector: map[string]string{},
+					Containers: []corev1.Container{
 						{
 							Name:  request.Service,
 							Image: request.Image,
-							Ports: []apiv1.ContainerPort{
+							Ports: []corev1.ContainerPort{
 								{
 									Name:          "http",
 									ContainerPort: factory.Config.RuntimeHTTPPort,
@@ -226,7 +214,7 @@ func makeDeploymentSpec(request types.FunctionDeployment, existingSecrets map[st
 							},
 							Env:             envVars,
 							Resources:       *resources,
-							ImagePullPolicy: imagePullPolicy,
+							ImagePullPolicy: corev1.PullAlways,
 							LivenessProbe:   probes.Liveness,
 							ReadinessProbe:  probes.Readiness,
 							SecurityContext: &corev1.SecurityContext{
@@ -302,7 +290,7 @@ func buildAnnotations(request types.FunctionDeployment) (map[string]string, erro
 		}
 	}
 
-	for k, _ := range annotations {
+	for k := range annotations {
 		if strings.Contains(k, "amazonaws.com") || strings.Contains(k, "gke.io") {
 			return nil, fmt.Errorf("annotation %q is not supported in the Community Edition", k)
 		}
@@ -342,26 +330,10 @@ func int32p(i int32) *int32 {
 	return &i
 }
 
-func createSelector(constraints []string) map[string]string {
-	selector := make(map[string]string)
-
-	if len(constraints) > 0 {
-		for _, constraint := range constraints {
-			parts := strings.Split(constraint, "=")
-
-			if len(parts) == 2 {
-				selector[parts[0]] = parts[1]
-			}
-		}
-	}
-
-	return selector
-}
-
-func createResources(request types.FunctionDeployment) (*apiv1.ResourceRequirements, error) {
-	resources := &apiv1.ResourceRequirements{
-		Limits:   apiv1.ResourceList{},
-		Requests: apiv1.ResourceList{},
+func createResources(request types.FunctionDeployment) (*corev1.ResourceRequirements, error) {
+	resources := &corev1.ResourceRequirements{
+		Limits:   corev1.ResourceList{},
+		Requests: corev1.ResourceList{},
 	}
 
 	// Set Memory limits
@@ -370,7 +342,7 @@ func createResources(request types.FunctionDeployment) (*apiv1.ResourceRequireme
 		if err != nil {
 			return resources, err
 		}
-		resources.Limits[apiv1.ResourceMemory] = qty
+		resources.Limits[corev1.ResourceMemory] = qty
 	}
 
 	if request.Requests != nil && len(request.Requests.Memory) > 0 {
@@ -378,7 +350,7 @@ func createResources(request types.FunctionDeployment) (*apiv1.ResourceRequireme
 		if err != nil {
 			return resources, err
 		}
-		resources.Requests[apiv1.ResourceMemory] = qty
+		resources.Requests[corev1.ResourceMemory] = qty
 	}
 
 	// Set CPU limits
@@ -387,7 +359,7 @@ func createResources(request types.FunctionDeployment) (*apiv1.ResourceRequireme
 		if err != nil {
 			return resources, err
 		}
-		resources.Limits[apiv1.ResourceCPU] = qty
+		resources.Limits[corev1.ResourceCPU] = qty
 	}
 
 	if request.Requests != nil && len(request.Requests.CPU) > 0 {
@@ -395,7 +367,7 @@ func createResources(request types.FunctionDeployment) (*apiv1.ResourceRequireme
 		if err != nil {
 			return resources, err
 		}
-		resources.Requests[apiv1.ResourceCPU] = qty
+		resources.Requests[corev1.ResourceCPU] = qty
 	}
 
 	return resources, nil
@@ -407,8 +379,6 @@ func getMinReplicaCount(labels map[string]string) *int32 {
 		if err == nil && minReplicas > 0 {
 			return int32p(int32(minReplicas))
 		}
-
-		log.Println(err)
 	}
 
 	return nil

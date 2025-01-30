@@ -1,5 +1,5 @@
-// Copyright 2020 OpenFaaS Authors
-// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+// License: OpenFaaS Community Edition (CE) EULA
+// Copyright (c) 2017,2019-2024 OpenFaaS Author(s)
 
 package k8s
 
@@ -16,10 +16,7 @@ type DeploymentConfig struct {
 	HTTPProbe       bool
 	ReadinessProbe  *ProbeConfig
 	LivenessProbe   *ProbeConfig
-	ImagePullPolicy string
 	// SetNonRootUser will override the function image user to ensure that it is not root. When
 	// true, the user will set to 12000 for all functions.
 	SetNonRootUser bool
-	// ProfilesNamespace defines which namespace is used to look up available Profiles.
-	ProfilesNamespace string
 }

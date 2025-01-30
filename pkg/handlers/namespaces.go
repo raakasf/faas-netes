@@ -1,6 +1,8 @@
-// Copyright (c) Alex Ellis 2017. All rights reserved.
+// License: OpenFaaS Community Edition (CE) EULA
+// Copyright (c) 2017,2019-2024 OpenFaaS Author(s)
+
+// Copyright (c) Alex Ellis 2017. All rights reserved\.
 // Copyright 2020 OpenFaaS Author(s)
-// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 package handlers
 
@@ -10,13 +12,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	glog "k8s.io/klog"
+	klog "k8s.io/klog"
 )
 
 // MakeNamespacesLister builds a list of namespaces with an "openfaas" tag, or the default name
@@ -31,7 +32,7 @@ func MakeNamespacesLister(defaultNamespace string, clientset kubernetes.Interfac
 
 		out, err := json.Marshal(namespaces)
 		if err != nil {
-			glog.Errorf("Failed to list namespaces: %s", err.Error())
+			klog.Errorf("Failed to list namespaces: %s", err.Error())
 			http.Error(w, "Failed to list namespaces", http.StatusInternalServerError)
 			return
 		}
@@ -78,7 +79,7 @@ func NewNamespaceResolver(defaultNamespace string, kube kubernetes.Interface) Na
 			}
 
 			// Reconstruct Body
-			r.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+			r.Body = io.NopCloser(bytes.NewBuffer(body))
 		}
 
 		if req.Namespace != defaultNamespace {

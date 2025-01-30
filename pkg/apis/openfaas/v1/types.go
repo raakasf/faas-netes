@@ -1,14 +1,20 @@
 package v1
 
 import (
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // +genclient
-// +genclient:noStatus
+// +kubebuilder:subresource:status
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:printcolumn:name="Image",type=string,JSONPath=`.spec.image`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type == "Ready")].status`,priority=1,description="The function's desired state has been applied by the controller"
+// +kubebuilder:printcolumn:name="Healthy",type=string,JSONPath=`.status.conditions[?(@.type == "Healthy")].status`,description="All replicas of the function's desired state are available to serve traffic"
+// +kubebuilder:printcolumn:name="Replicas",type=integer,JSONPath=`.status.replicas`,description="The desired number of replicas"
+// +kubebuilder:printcolumn:name="Available",type=integer,JSONPath=`.status.availableReplicas`
+// +kubebuilder:printcolumn:name="Unavailable",type=integer,JSONPath=`.status.unavailableReplicas`,priority=1
 
 // Function describes an OpenFaaS function
 type Function struct {
@@ -16,6 +22,9 @@ type Function struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec FunctionSpec `json:"spec"`
+
+	// +optional
+	Status FunctionStatus `json:"status,omitempty"`
 }
 
 // FunctionSpec is the spec for a Function resource
@@ -59,6 +68,43 @@ type FunctionList struct {
 	Items []Function `json:"items"`
 }
 
+type FunctionStatus struct {
+	// Conditions contains observations of the resource's state.
+	// +optional
+	// +patchMergeKey=type
+	// +patchStrategy=merge
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+
+	// +optional
+	Replicas int32 `json:"replicas,omitempty"`
+
+	// +optional
+	AvailableReplicas int32 `json:"availableReplicas,omitempty"`
+
+	// +optional
+	UnavailableReplicas int32 `json:"unavailableReplicas,omitempty"`
+
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// OpenFaaS Profiles that are applied to this function
+	// +optional
+	Profiles []AppliedProfile `json:"profiles,omitempty"`
+}
+
+// AppliedProfile describes an OpenFaaS profile that is applied to the function
+type AppliedProfile struct {
+	// Reference to the applied Profile object
+	ProfileRef ResourceRef `json:"profileRef"`
+
+	// The generation of the OpenFaaS profile object that was applied to the function
+	ObservedGeneration int64 `json:"observedGeneration"`
+}
+
+// ResourceRef references resources across namespaces
+type ResourceRef struct {
+	Name      string `json:"name,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+}
+
 // +genclient
 // +genclient:noStatus
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -73,7 +119,7 @@ type Profile struct {
 }
 
 // ProfileSpec is an openfaas api extension that can be predefined and applied
-// to functions by annotating them with `com.openfaas/profile: name1,name2`
+// to functions by annotating them with `com.openfaas.profile: name1,name2`
 type ProfileSpec struct {
 	// If specified, the function's pod tolerations.
 	//
@@ -120,6 +166,46 @@ type ProfileSpec struct {
 	// https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/
 	// +optional
 	TopologySpreadConstraints []corev1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
+
+	// DNSPolicy determines how DNS resolution is handled for Pods
+	//
+	// copied to the Pod DNSPolicy, this will replace any existing value or previously
+	// applied Profile.
+	//
+	// https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pod-s-dns-policy
+	// +optional
+	DNSPolicy corev1.DNSPolicy `json:"dnsPolicy,omitempty"`
+
+	// DNSConfig allows customizing DNS resolution for Pods. See type description for default values
+	// of each field.
+	//
+	// each non-nil value will be merged into the function's pods DNSConfig, the value will
+	// replace any existing value or previously applied Profile
+	//
+	// https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pod-dns-config
+	// +optional
+	DNSConfig *corev1.PodDNSConfig `json:"dnsConfig,omitempty"`
+
+	// Resources allows customizing resource requests and limits for the function container.
+	//
+	// Resource requests and limits keys are merged with the function container resources.
+	// This will replace any existing value or previously applied Profile for that key.
+	//
+	// +optional
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// If specified, indicates the function pod's priority. "system-node-critical" and "system-cluster-critical" are two special keywords
+	// which indicate the highest priorities with the former being the highest priority.
+	// Any other name must be defined by creating a PriorityClass object with that name.
+	// If not specified, the function pod priority will be default or zero if there is no default.
+	//
+	// +optional
+	PriorityClassName string `json:"priorityClassName,omitempty"`
+
+	// Strategy allows customizing the deployment strategy for function deployments.
+	//
+	// +optional
+	Strategy *appsv1.DeploymentStrategy `json:"strategy,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

@@ -1,5 +1,5 @@
-// Copyright 2020 OpenFaaS Author(s)
-// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+// License: OpenFaaS Community Edition (CE) EULA
+// Copyright (c) 2017,2019-2024 OpenFaaS Author(s)
 
 package handlers
 
@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/openfaas/faas-netes/pkg/k8s"
-
 	types "github.com/openfaas/faas-provider/types"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -48,7 +48,7 @@ func MakeUpdateHandler(defaultNamespace string, factory k8s.FunctionFactory) htt
 		}
 
 		if lookupNamespace != defaultNamespace {
-			http.Error(w, fmt.Sprintf("valid namespaces are: %s", defaultNamespace), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("namespace must be: %s", defaultNamespace), http.StatusBadRequest)
 			return
 		}
 
@@ -63,7 +63,7 @@ func MakeUpdateHandler(defaultNamespace string, factory k8s.FunctionFactory) htt
 			return
 		}
 
-		if err, status := updateDeploymentSpec(ctx, lookupNamespace, factory, request, annotations); err != nil {
+		if status, err := updateDeploymentSpec(ctx, lookupNamespace, factory, request, annotations); err != nil {
 			if !k8s.IsNotFound(err) {
 				log.Printf("error updating deployment: %s.%s, error: %s\n", request.Service, lookupNamespace, err)
 
@@ -75,7 +75,7 @@ func MakeUpdateHandler(defaultNamespace string, factory k8s.FunctionFactory) htt
 			return
 		}
 
-		if err, status := updateService(lookupNamespace, factory, request, annotations); err != nil {
+		if status, err := updateService(lookupNamespace, factory, request, annotations); err != nil {
 			if !k8s.IsNotFound(err) {
 				log.Printf("error updating service: %s.%s, error: %s\n", request.Service, lookupNamespace, err)
 			}
@@ -94,7 +94,7 @@ func updateDeploymentSpec(
 	functionNamespace string,
 	factory k8s.FunctionFactory,
 	request types.FunctionDeployment,
-	annotations map[string]string) (err error, httpStatus int) {
+	annotations map[string]string) (int, error) {
 
 	getOpts := metav1.GetOptions{}
 
@@ -103,23 +103,23 @@ func updateDeploymentSpec(
 		Get(context.TODO(), request.Service, getOpts)
 
 	if findDeployErr != nil {
-		return findDeployErr, http.StatusNotFound
+		return http.StatusNotFound, findDeployErr
+	}
+
+	if err := isAnonymous(request.Image); err != nil {
+		return http.StatusBadRequest, err
 	}
 
 	if len(deployment.Spec.Template.Spec.Containers) > 0 {
 		deployment.Spec.Template.Spec.Containers[0].Image = request.Image
 
-		// Disabling update support to prevent unexpected mutations of deployed functions,
-		// since imagePullPolicy is now configurable. This could be reconsidered later depending
-		// on desired behavior, but will need to be updated to take config.
-		//deployment.Spec.Template.Spec.Containers[0].ImagePullPolicy = v1.PullAlways
+		deployment.Spec.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullAlways
 
 		deployment.Spec.Template.Spec.Containers[0].Env = buildEnvVars(&request)
 
 		factory.ConfigureReadOnlyRootFilesystem(request, deployment)
 		factory.ConfigureContainerUserID(deployment)
-
-		deployment.Spec.Template.Spec.NodeSelector = createSelector(request.Constraints)
+		deployment.Spec.Template.Spec.NodeSelector = map[string]string{}
 
 		labels := map[string]string{
 			"faas_function": request.Service,
@@ -139,16 +139,13 @@ func updateDeploymentSpec(
 		// deployment.Labels = labels
 		deployment.Spec.Template.ObjectMeta.Labels = labels
 
-		// store the current annotations so that we can diff the annotations
-		// and determine which profiles need to be removed
-		currentAnnotations := deployment.Annotations
 		deployment.Annotations = annotations
 		deployment.Spec.Template.Annotations = annotations
 		deployment.Spec.Template.ObjectMeta.Annotations = annotations
 
 		resources, resourceErr := createResources(request)
 		if resourceErr != nil {
-			return resourceErr, http.StatusBadRequest
+			return http.StatusBadRequest, resourceErr
 		}
 
 		deployment.Spec.Template.Spec.Containers[0].Resources = *resources
@@ -156,59 +153,40 @@ func updateDeploymentSpec(
 		secrets := k8s.NewSecretsClient(factory.Client)
 		existingSecrets, err := secrets.GetSecrets(functionNamespace, request.Secrets)
 		if err != nil {
-			return err, http.StatusBadRequest
+			return http.StatusBadRequest, err
 		}
 
 		err = factory.ConfigureSecrets(request, deployment, existingSecrets)
 		if err != nil {
 			log.Println(err)
-			return err, http.StatusBadRequest
+			return http.StatusBadRequest, err
 		}
 
 		probes, err := factory.MakeProbes(request)
 		if err != nil {
-			return err, http.StatusBadRequest
+			return http.StatusBadRequest, err
 		}
 
 		deployment.Spec.Template.Spec.Containers[0].LivenessProbe = probes.Liveness
 		deployment.Spec.Template.Spec.Containers[0].ReadinessProbe = probes.Readiness
 
-		// compare the annotations from args to the cache copy of the deployment annotations
-		// at this point we have already updated the annotations to the new value, if we
-		// compare to that it will produce an empty list
-		profileNamespace := factory.Config.ProfilesNamespace
-		profileList, err := factory.GetProfilesToRemove(ctx, profileNamespace, annotations, currentAnnotations)
-		if err != nil {
-			return err, http.StatusBadRequest
-		}
-		for _, profile := range profileList {
-			factory.RemoveProfile(profile, deployment)
-		}
-
-		profileList, err = factory.GetProfiles(ctx, profileNamespace, annotations)
-		if err != nil {
-			return err, http.StatusBadRequest
-		}
-		for _, profile := range profileList {
-			factory.ApplyProfile(profile, deployment)
-		}
 	}
 
 	if _, updateErr := factory.Client.AppsV1().
 		Deployments(functionNamespace).
 		Update(context.TODO(), deployment, metav1.UpdateOptions{}); updateErr != nil {
 
-		return updateErr, http.StatusInternalServerError
+		return http.StatusInternalServerError, updateErr
 	}
 
-	return nil, http.StatusAccepted
+	return http.StatusAccepted, nil
 }
 
 func updateService(
 	functionNamespace string,
 	factory k8s.FunctionFactory,
 	request types.FunctionDeployment,
-	annotations map[string]string) (err error, httpStatus int) {
+	annotations map[string]string) (int, error) {
 
 	getOpts := metav1.GetOptions{}
 
@@ -217,7 +195,7 @@ func updateService(
 		Get(context.TODO(), request.Service, getOpts)
 
 	if findServiceErr != nil {
-		return findServiceErr, http.StatusNotFound
+		return http.StatusNotFound, findServiceErr
 	}
 
 	service.Annotations = annotations
@@ -226,8 +204,8 @@ func updateService(
 		Services(functionNamespace).
 		Update(context.TODO(), service, metav1.UpdateOptions{}); updateErr != nil {
 
-		return updateErr, http.StatusInternalServerError
+		return http.StatusInternalServerError, updateErr
 	}
 
-	return nil, http.StatusAccepted
+	return http.StatusAccepted, nil
 }

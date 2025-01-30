@@ -1,18 +1,28 @@
-// Copyright (c) Alex Ellis 2017. All rights reserved.
+// License: OpenFaaS Community Edition (CE) EULA
+// Copyright (c) 2017,2019-2024 OpenFaaS Author(s)
+
+// Copyright (c) Alex Ellis 2017. All rights reserved\.
 // Copyright 2020 OpenFaaS Author(s)
-// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 package handlers
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"regexp"
+	"strconv"
+	"strings"
 
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	types "github.com/openfaas/faas-provider/types"
 )
 
 // Regex for RFC-1123 validation:
-// 	k8s.io/kubernetes/pkg/util/validation/validation.go
+//
+//	k8s.io/kubernetes/pkg/util/validation/validation.go
 var validDNS = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 // validates that the service name is valid for Kubernetes
@@ -39,6 +49,85 @@ func ValidateDeployRequest(request *types.FunctionDeployment) error {
 
 	if request.Image == "" {
 		return fmt.Errorf("image: is required")
+	}
+
+	if err := validateScalingLabels(request); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateScalingLabels(request *types.FunctionDeployment) error {
+	if request.Labels == nil {
+		return nil
+	}
+
+	labels := *request.Labels
+	if v, ok := labels["com.openfaas.scale.zero"]; ok {
+		if v == "true" {
+			return fmt.Errorf("com.openfaas.scale.zero not available for Community Edition")
+		}
+	}
+	if _, ok := labels["com.openfaas.scale.zero-duration"]; ok {
+		return fmt.Errorf("com.openfaas.scale.zero-duration not available for Community Edition")
+	}
+
+	if _, ok := labels["com.openfaas.scale.target"]; ok {
+		return fmt.Errorf("com.openfaas.scale.target not available for Community Edition")
+	}
+
+	if _, ok := labels["com.openfaas.scale.type"]; ok {
+		return fmt.Errorf("com.openfaas.scale.type not available for Community Edition")
+	}
+
+	if v, ok := labels["com.openfaas.scale.max"]; ok {
+		if vv, err := strconv.Atoi(v); err == nil {
+			if vv > MaxReplicas {
+				return fmt.Errorf("com.openfaas.scale.max is set too high for Community Edition")
+			}
+		}
+	}
+
+	if v, ok := labels["com.openfaas.scale.min"]; ok {
+		if vv, err := strconv.Atoi(v); err == nil {
+			if vv > MaxReplicas {
+				return fmt.Errorf("com.openfaas.scale.min is set too high for Community Edition")
+			}
+		}
+	}
+
+	return nil
+}
+
+// OpenFaaS CE license
+// This code is licensed under the OpenFaaS Community Edition (CE) EULA
+// A license is required to use public images, however a registry on localhost is supported
+// for local testing within the terms of the EULA.
+func isAnonymous(image string) error {
+	// Use context to cancel or timeout requests
+	ctx := context.Background()
+
+	// Set up authentication using anonymous credentials
+	auth := authn.Anonymous
+
+	// Try to fetch the image manifest
+	ref, err := name.ParseReference(image)
+	if err != nil {
+		return fmt.Errorf("unable to parse image reference: %s", err.Error())
+	}
+
+	registryServer := ref.Context().Registry.Name()
+
+	if strings.HasPrefix(registryServer, "localhost") {
+		host, _, err := net.SplitHostPort(registryServer)
+		if err == nil && host == "localhost" {
+			return nil
+		}
+	}
+
+	if _, err := remote.Head(ref, remote.WithAuth(auth), remote.WithContext(ctx)); err != nil {
+		return fmt.Errorf("the Community Edition license agreement only supports public images")
 	}
 
 	return nil

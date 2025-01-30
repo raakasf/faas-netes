@@ -33,11 +33,14 @@ helm upgrade slow-queue chart/queue-worker \
 |-----------|-------------|---------|
 | `image` | The jetstream-queue-worker image that should be deployed | See values.yaml |
 | `replicas` | Number of queue-worker replicas to create | `1` |
+| `maxInflight` | Control the concurrent invocations | `1` |
+| `maxWaiting` | Configure the max waiting pulls for the queue-worker JetStream consumer. The value should be at least max_inflight * queue_worker.replicas. Note that this value can not be updated once the consumer is created. | `512` |
 | `upstreamTimeout` | Maximum duration of upstream function call | `1m` |
 | `maxRetryAttempts` | The amount of times to try sending a message to a function before discarding it |`10` |
 | `maxRetryWait` | The maximum amount of time to wait between retries | `120s` |
 | `initialRetryWait` | The amount of time to wait for the first retry | `10s` |
 | `httpRetryCodes` | A comma-separated list of HTTP status codes which the queue worker will retry when received from a function | `408,429,500,502,503,504` |
+| `backoff` | The backoff algorithm used for retries. Must be one off `exponential`, `full` or `equal`| `exponential` |
 | `gateway.host` | The host at which the OpenFaaS gateway can be reached | `http://gateway.openfaas` |
 | `insecureTLS` | Enable insecure tls for callbacks | `false` |
 | `gateway.port` | The port at which the OpenFaaS gateway can be reached | `8080` |

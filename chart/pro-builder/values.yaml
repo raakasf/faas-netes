@@ -1,9 +1,12 @@
-# You will need to create a license named "openfaas-license" - see the 
+# This component is licensed for OpenFaaS Standard/Enterprise customers only.
+# Purchase or obtain a trial license at https://openfaas.com/pricing/
+
+# You will need to create a license named "openfaas-license" - see the
 # chart README for detailed instructions.
 
 # image is for the pro-builder API
 proBuilder:
-  image: ghcr.io/openfaasltd/pro-builder:0.3.6
+  image: ghcr.io/openfaasltd/pro-builder:0.4.1
 
   # Set to 0 for unlimited, or some non-zero value for a hard limit
   # the builder will return a HTTP 429 status code, then the client 
@@ -31,7 +34,7 @@ buildkit:
   # nodepool for the function builder pods, which is recycled often
   # through the use of spot instances or preemptive VMs.
   #
-  # image: moby/buildkit:v0.11.1
+  # image: moby/buildkit:v0.15.1
   # rootless: false
   # securityContext:
   #   runAsUser: 0
@@ -41,7 +44,7 @@ buildkit:
   # For a rootless configuration, preferred, if the configuration
   # and Kernel version of your Kubernetes nodes supports it
   # 
-  image: moby/buildkit:v0.11.2-rootless
+  image: moby/buildkit:v0.15.1-rootless
   rootless: true
   securityContext:
     # Needs Kubernetes >= 1.19

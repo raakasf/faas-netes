@@ -14,6 +14,8 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: prometheus
@@ -37,6 +39,12 @@ spec:
         command:
           - "prometheus"
           - "--config.file=/etc/prometheus/prometheus.yml"
+          {{- if .Values.prometheus.retention.time }}
+          - "--storage.tsdb.retention.time={{.Values.prometheus.retention.time}}"
+          {{- end }}
+          {{-  if .Values.prometheus.retention.size }}
+          - "--storage.tsdb.retention.size={{.Values.prometheus.retention.size}}"
+          {{- end }}
         imagePullPolicy: {{ .Values.openfaasImagePullPolicy }}
         livenessProbe:
           {{- if .Values.httpProbe }}
@@ -73,6 +81,12 @@ spec:
         ports:
         - containerPort: 9090
           protocol: TCP
+
+        {{- if .Values.securityContext }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        {{- end }}
+
         volumeMounts:
         - mountPath: /etc/prometheus/prometheus.yml
           name: prometheus-config
@@ -107,8 +121,20 @@ spec:
                 path: prometheus-rules.yml
                 mode: 0644
 {{- end }}
+
+{{- if and .Values.prometheus.pvc.enabled .Values.openfaasPro }}
+        - name: prom-data
+          persistentVolumeClaim:
+  {{- if .Values.prometheus.pvc.name }}
+            claimName: {{.Values.prometheus.pvc.name}}
+  {{- else }}
+            claimName: prometheus-data
+  {{- end }}
+{{- else }}
         - name: prom-data
           emptyDir: {}
+{{- end }}
+
     {{- with .Values.nodeSelector }}
       nodeSelector:
 {{ toYaml . | indent 8 }}

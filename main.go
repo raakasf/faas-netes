@@ -1,14 +1,17 @@
+// License: OpenFaaS Community Edition (CE) EULA
+// Copyright (c) 2017,2019-2024 OpenFaaS Author(s)
+
 // Copyright (c) Alex Ellis 2017. All rights reserved.
 // Copyright (c) OpenFaaS Author(s) 2020. All rights reserved.
-// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
-	"os"
+	"net/http"
 	"time"
 
 	clientset "github.com/openfaas/faas-netes/pkg/client/clientset/versioned"
@@ -34,18 +37,16 @@ import (
 
 	// required to authenticate against GKE clusters
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
-
-	// required for updating and validating the CRD clientset
-	_ "k8s.io/code-generator/cmd/client-gen/generators"
 	// main.go:36:2: import "sigs.k8s.io/controller-tools/cmd/controller-gen" is a program, not an importable package
 	// _ "sigs.k8s.io/controller-tools/cmd/controller-gen"
 )
+
+const defaultResync = time.Hour * 10
 
 func main() {
 	var kubeconfig string
 	var masterURL string
 	var (
-		operator,
 		verbose bool
 	)
 
@@ -54,20 +55,21 @@ func main() {
 	flag.BoolVar(&verbose, "verbose", false, "Print verbose config information")
 	flag.StringVar(&masterURL, "master", "",
 		"The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
+	flag.Bool("operator", false, "Run as an operator (not available in CE)")
 
-	flag.BoolVar(&operator, "operator", false, "Use the operator mode instead of faas-netes")
 	flag.Parse()
 
-	if operator {
-		klog.Errorf("The operator mode is deprecated in OpenFaaS Community Edition (CE), upgrade to OpenFaaS Pro to continue using it")
-		os.Exit(1)
-	}
-
-	mode := "controller"
-
 	sha, release := version.GetReleaseInfo()
-	fmt.Printf("faas-netes - Community Edition (CE)\n"+
-		"\nVersion: %s Commit: %s Mode: %s\n", release, sha, mode)
+	fmt.Printf(`faas-netes - Community Edition (CE)
+Warning: Commercial use limited to 60 days.
+Learn more: https://github.com/openfaas/faas/blob/master/EULA.md
+
+Version: %s Commit: %s
+`, release, sha)
+
+	if err := config.ConnectivityCheck(); err != nil {
+		log.Fatalf("Error checking connectivity, OpenFaaS CE cannot be run in an offline environment: %s", err.Error())
+	}
 
 	clientCmdConfig, err := clientcmd.BuildConfigFromFlags(masterURL, kubeconfig)
 	if err != nil {
@@ -105,22 +107,16 @@ func main() {
 		HTTPProbe:       config.HTTPProbe,
 		SetNonRootUser:  config.SetNonRootUser,
 		ReadinessProbe: &k8s.ProbeConfig{
-			InitialDelaySeconds: int32(config.ReadinessProbeInitialDelaySeconds),
-			TimeoutSeconds:      int32(config.ReadinessProbeTimeoutSeconds),
-			PeriodSeconds:       int32(config.ReadinessProbePeriodSeconds),
+			InitialDelaySeconds: int32(2),
+			TimeoutSeconds:      int32(1),
+			PeriodSeconds:       int32(2),
 		},
 		LivenessProbe: &k8s.ProbeConfig{
-			InitialDelaySeconds: int32(config.LivenessProbeInitialDelaySeconds),
-			TimeoutSeconds:      int32(config.LivenessProbeTimeoutSeconds),
-			PeriodSeconds:       int32(config.LivenessProbePeriodSeconds),
+			InitialDelaySeconds: int32(2),
+			TimeoutSeconds:      int32(1),
+			PeriodSeconds:       int32(2),
 		},
-		ImagePullPolicy:   config.ImagePullPolicy,
-		ProfilesNamespace: config.ProfilesNamespace,
 	}
-
-	// the sync interval does not affect the scale to/from zero feature
-	// auto-scaling is does via the HTTP API that acts on the deployment Spec.Replicas
-	defaultResync := time.Minute * 5
 
 	namespaceScope := config.DefaultFunctionNamespace
 
@@ -146,7 +142,6 @@ func main() {
 	}
 
 	runController(setup)
-
 }
 
 type customInformers struct {
@@ -197,26 +192,42 @@ func runController(setup serverSetup) {
 	stopCh := signals.SetupSignalHandler()
 	operator := false
 	listers := startInformers(setup, stopCh, operator)
-
+	handlers.RegisterEventHandlers(listers.DeploymentInformer, kubeClient, config.DefaultFunctionNamespace)
+	deployLister := listers.DeploymentInformer.Lister()
 	functionLookup := k8s.NewFunctionLookup(config.DefaultFunctionNamespace, listers.EndpointsInformer.Lister())
+	functionList := k8s.NewFunctionList(config.DefaultFunctionNamespace, deployLister)
 
-	bootstrapHandlers := providertypes.FaaSHandlers{
-		FunctionProxy:        proxy.NewHandlerFunc(config.FaaSConfig, functionLookup),
-		DeleteHandler:        handlers.MakeDeleteHandler(config.DefaultFunctionNamespace, kubeClient),
-		DeployHandler:        handlers.MakeDeployHandler(config.DefaultFunctionNamespace, factory),
-		FunctionReader:       handlers.MakeFunctionReader(config.DefaultFunctionNamespace, listers.DeploymentInformer.Lister()),
-		ReplicaReader:        handlers.MakeReplicaReader(config.DefaultFunctionNamespace, listers.DeploymentInformer.Lister()),
-		ReplicaUpdater:       handlers.MakeReplicaUpdater(config.DefaultFunctionNamespace, kubeClient),
-		UpdateHandler:        handlers.MakeUpdateHandler(config.DefaultFunctionNamespace, factory),
-		HealthHandler:        handlers.MakeHealthHandler(),
-		InfoHandler:          handlers.MakeInfoHandler(version.BuildVersion(), version.GitCommit),
-		SecretHandler:        handlers.MakeSecretHandler(config.DefaultFunctionNamespace, kubeClient),
-		LogHandler:           logs.NewLogHandlerFunc(k8s.NewLogRequestor(kubeClient, config.DefaultFunctionNamespace), config.FaaSConfig.WriteTimeout),
-		ListNamespaceHandler: handlers.MakeNamespacesLister(config.DefaultFunctionNamespace, kubeClient),
+	printFunctionExecutionTime := true
+
+	proxyHandler := proxy.NewHandlerFunc(config.FaaSConfig, functionLookup, printFunctionExecutionTime)
+
+	if err := handlers.Check(functionList); err != nil {
+		msg := fmt.Sprintf("Function invocations disabled due to error: %s.", err.Error())
+		log.Print(msg)
+
+		proxyHandler = func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, msg, http.StatusMethodNotAllowed)
+		}
 	}
 
-	faasProvider.Serve(&bootstrapHandlers, &config.FaaSConfig)
+	bootstrapHandlers := providertypes.FaaSHandlers{
+		FunctionProxy:  proxyHandler,
+		DeleteFunction: handlers.MakeDeleteHandler(config.DefaultFunctionNamespace, kubeClient),
+		DeployFunction: handlers.MakeDeployHandler(config.DefaultFunctionNamespace, factory, functionList),
+		FunctionLister: handlers.MakeFunctionReader(config.DefaultFunctionNamespace, deployLister),
+		FunctionStatus: handlers.MakeReplicaReader(config.DefaultFunctionNamespace, deployLister),
+		ScaleFunction:  handlers.MakeReplicaUpdater(config.DefaultFunctionNamespace, kubeClient),
+		UpdateFunction: handlers.MakeUpdateHandler(config.DefaultFunctionNamespace, factory),
+		Health:         handlers.MakeHealthHandler(),
+		Info:           handlers.MakeInfoHandler(version.BuildVersion(), version.GitCommit),
+		Secrets:        handlers.MakeSecretHandler(config.DefaultFunctionNamespace, kubeClient),
+		Logs:           logs.NewLogHandlerFunc(k8s.NewLogRequestor(kubeClient, config.DefaultFunctionNamespace), config.FaaSConfig.WriteTimeout),
+		ListNamespaces: handlers.MakeNamespacesLister(config.DefaultFunctionNamespace, kubeClient),
+	}
 
+	ctx := context.Background()
+
+	faasProvider.Serve(ctx, &bootstrapHandlers, &config.FaaSConfig)
 }
 
 // serverSetup is a container for the config and clients needed to start the

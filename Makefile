@@ -1,35 +1,23 @@
-.PHONY: build local push namespaces install charts start-kind stop-kind build-buildx render-charts verify-charts charts-only
+.PHONY: local publish-buildx publish-buildx-all namespaces install charts start-kind stop-kind build-buildx build-buildx-all render-charts verify-charts verify-chart charts-only bump-charts
+
 IMG_NAME?=faas-netes
 
 VERBOSE?=false
 
 TAG?=latest
 OWNER?=openfaas
-SERVER?=ghcr.io
+SERVER?=ttl.sh
 export DOCKER_CLI_EXPERIMENTAL=enabled
 export DOCKER_BUILDKIT=1
-
-TOOLS_DIR := .tools
-
-GOPATH := $(shell go env GOPATH)
-CODEGEN_VERSION := $(shell hack/print-codegen-version.sh)
-CODEGEN_PKG := $(GOPATH)/pkg/mod/k8s.io/code-generator@${CODEGEN_VERSION}
 
 VERSION := $(shell git describe --tags --dirty --always)
 GIT_COMMIT := $(shell git rev-parse HEAD)
 
 all: build-docker
 
-$(TOOLS_DIR)/code-generator.mod: go.mod
-	@echo "syncing code-generator tooling version"
-	@cd $(TOOLS_DIR) && go mod edit -require "k8s.io/code-generator@${CODEGEN_VERSION}"
-
-${CODEGEN_PKG}: $(TOOLS_DIR)/code-generator.mod
-	@echo "(re)installing k8s.io/code-generator-${CODEGEN_VERSION}"
-	@cd $(TOOLS_DIR) && go mod download -modfile=code-generator.mod
-
 local:
-	CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o faas-netes
+	CGO_ENABLED=0 GOOS=linux go build -o faas-netes
+
 
 build-docker:
 	docker build \
@@ -42,7 +30,7 @@ build-buildx:
 	@echo $(SERVER)/$(OWNER)/$(IMG_NAME):$(TAG) && \
 	docker buildx create --use --name=multiarch --node=multiarch && \
 	docker buildx build \
-		--push \
+		--output "type=image,push=false" \
 		--platform linux/amd64 \
         --build-arg GIT_COMMIT=$(GIT_COMMIT) \
         --build-arg VERSION=$(VERSION) \
@@ -72,8 +60,17 @@ publish-buildx-all:
 		--tag $(SERVER)/$(OWNER)/$(IMG_NAME):$(TAG) \
 		.
 
-push:
-	docker push $(SERVER)/$(OWNER)/$(IMG_NAME):$(TAG)
+.PHONY: publish-buildx
+publish-buildx:
+	@echo  $(SERVER)/$(OWNER)/$(IMG_NAME):$(TAG) && \
+	docker buildx create --use --name=multiarch --node=multiarch && \
+	docker buildx build \
+		--platform linux/amd64 \
+		--push=true \
+        --build-arg GIT_COMMIT=$(GIT_COMMIT) \
+        --build-arg VERSION=$(VERSION) \
+		--tag $(SERVER)/$(OWNER)/$(IMG_NAME):$(TAG) \
+		.
 
 charts: verify-charts charts-only
 
@@ -88,10 +85,20 @@ verify-charts:
 	arkade chart verify --verbose=$(VERBOSE) -f ./chart/sqs-connector/values.yaml && \
 	arkade chart verify --verbose=$(VERBOSE) -f ./chart/postgres-connector/values.yaml && \
 	arkade chart verify --verbose=$(VERBOSE) -f ./chart/queue-worker/values.yaml && \
-	arkade chart verify --verbose=$(VERBOSE) -f ./chart/sns-connector/values.yaml
+	arkade chart verify --verbose=$(VERBOSE) -f ./chart/sns-connector/values.yaml && \
+	arkade chart verify --verbose=$(VERBOSE) -f ./chart/rabbitmq-connector/values.yaml
+
+verify-chart:
+	@echo Verifying helm chart images in remote registries && \
+	arkade chart verify --verbose=$(VERBOSE) -f ./chart/openfaas/values.yaml
+
+# Only upgrade the openfaas chart, for speed
+upgrade-chart:
+	@echo Upgrading openfaas helm chart images && \
+	arkade chart upgrade --verbose=$(VERBOSE) -w -f ./chart/openfaas/values.yaml
 
 upgrade-charts:
-	@echo Upgrading helm charts images && \
+	@echo Upgrading images for all helm charts && \
 	arkade chart upgrade --verbose=$(VERBOSE) -w -f ./chart/openfaas/values.yaml && \
 	arkade chart upgrade --verbose=$(VERBOSE) -w -f ./chart/kafka-connector/values.yaml && \
 	arkade chart upgrade --verbose=$(VERBOSE) -w -f ./chart/cron-connector/values.yaml && \
@@ -101,8 +108,22 @@ upgrade-charts:
 	arkade chart upgrade --verbose=$(VERBOSE) -w -f ./chart/sqs-connector/values.yaml && \
 	arkade chart upgrade --verbose=$(VERBOSE) -w -f ./chart/postgres-connector/values.yaml && \
 	arkade chart upgrade --verbose=$(VERBOSE) -w -f ./chart/queue-worker/values.yaml && \
-	arkade chart upgrade --verbose=$(VERBOSE) -w -f ./chart/sns-connector/values.yaml
+	arkade chart upgrade --verbose=$(VERBOSE) -w -f ./chart/sns-connector/values.yaml && \
+	arkade chart upgrade --verbose=$(VERBOSE) -w -f ./chart/rabbitmq-connector/values.yaml
 
+bump-charts:
+	arkade chart bump --file ./chart/openfaas/Chart.yaml -w && \
+	arkade chart bump --file ./chart/kafka-connector/Chart.yaml -w && \
+	arkade chart bump --file ./chart/cron-connector/Chart.yaml -w && \
+	arkade chart bump --file ./chart/nats-connector/Chart.yaml -w && \
+	arkade chart bump --file ./chart/mqtt-connector/Chart.yaml -w && \
+	arkade chart bump --file ./chart/pro-builder/Chart.yaml -w && \
+	arkade chart bump --file ./chart/sqs-connector/Chart.yaml -w && \
+	arkade chart bump --file ./chart/postgres-connector/Chart.yaml -w && \
+	arkade chart bump --file ./chart/queue-worker/Chart.yaml -w && \
+	arkade chart bump --file ./chart/sns-connector/Chart.yaml -w && \
+	arkade chart bump --file ./chart/rabbitmq-connector/Chart.yaml -w
+	
 charts-only:
 	@cd chart && \
 		helm package openfaas/ && \
@@ -114,13 +135,11 @@ charts-only:
 		helm package sqs-connector/ && \
 		helm package postgres-connector/ && \
 		helm package queue-worker/ && \
-		helm package sns-connector/
+		helm package sns-connector/ && \
+		helm package rabbitmq-connector/
 	mv chart/*.tgz docs/
 	helm repo index docs --url https://openfaas.github.io/faas-netes/ --merge ./docs/index.yaml
-	./contrib/create-static-manifest.sh
 
-render-charts:
-	./contrib/create-static-manifest.sh
 
 start-kind: ## attempt to start a new dev environment
 	@./contrib/create_dev.sh
@@ -129,9 +148,9 @@ stop-kind: ## attempt to stop the dev environment
 	@./contrib/stop_dev.sh
 
 .PHONY: verify-codegen
-verify-codegen: ${CODEGEN_PKG}
+verify-codegen:
 	./hack/verify-codegen.sh
 
 .PHONY: update-codegen
-update-codegen: ${CODEGEN_PKG}
+update-codegen:
 	./hack/update-codegen.sh

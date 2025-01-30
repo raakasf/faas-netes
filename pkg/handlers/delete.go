@@ -1,6 +1,8 @@
-// Copyright (c) Alex Ellis 2017. All rights reserved.
+// License: OpenFaaS Community Edition (CE) EULA
+// Copyright (c) 2017,2019-2024 OpenFaaS Author(s)
+
+// Copyright (c) Alex Ellis 2017. All rights reserved\.
 // Copyright 2020 OpenFaaS Author(s)
-// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 package handlers
 
@@ -38,7 +40,7 @@ func MakeDeleteHandler(defaultNamespace string, clientset *kubernetes.Clientset)
 		}
 
 		if lookupNamespace != defaultNamespace {
-			http.Error(w, fmt.Sprintf("valid namespaces are: %s", defaultNamespace), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("namespace must be: %s", defaultNamespace), http.StatusBadRequest)
 			return
 		}
 

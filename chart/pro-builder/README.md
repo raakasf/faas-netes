@@ -12,7 +12,10 @@ The [pro-builder](https://docs.openfaas.com/openfaas-pro/builder/) is used to bu
 
 - A container image registry that is accessible from your cluster
 
-  You can generate a valid container registry login file by running `faas-cli registry-login`, or by disabling the keychain in Docker, running `docker login` and then using your own `$HOME/.docker/config.json` file.
+  You can generate a valid container registry login file by:
+  
+  * Running `faas-cli registry-login` (preferred)
+  * Or, disable the keychain in Docker, then run `docker login`, and supply the `$HOME/.docker/config.json` file.
 
 - OpenFaaS pre-installed
 
@@ -20,22 +23,42 @@ The [pro-builder](https://docs.openfaas.com/openfaas-pro/builder/) is used to bu
 
 ## Installation
 
-Create a registry push secret for the Pro Builder to use to push images to your registry. This can be generated through `docker login`.
+Create a registry push secret for the Pro Builder to use to push images to your registry.
+
+### Registry authentication
+
+For testing with ttl.sh, create an empty auths section:
+
+```bash
+cat << EOF > ttlsh-config.json
+{
+  "auths": {}
+}
+EOF
+```
+
+Then create the secret within the cluster:
 
 ```bash
 kubectl create secret generic registry-secret \
-    --from-file config.json=$HOME/.docker/config.json -n openfaas
+    --from-file config.json=./ttlsh-config.json -n openfaas
 ```
 
-> For pushing images to ECR see: [Push images to Amazon ECR](#push-images-to-amazon-ecr)
+When you want to authenticate to a private registry, you must either:
+
+* Use `faas-cli registry-login`, to create a file in the `.credentials` folder of the current working directory
+* Or, turn off the credential store for Docker Desktop, delete `~/docker/config.json` and then run: `docker login` and enter your credentials.
+
+And remember to delete any existing secret from the cluster first: `kubectl delete secret registry-secret -n openfaas`.
+
+For pushing images to ECR see: [Push images to Amazon ECR](#push-images-to-amazon-ecr)
+
+### Signing secret
 
 Create a HMAC signing secret for use between the Pro Builder and your client:
 
 ```bash
-PAYLOAD=$(head -c 32 /dev/urandom |shasum | cut -d ' ' -f 1)
-
-# Save a copy for later use
-echo $PAYLOAD > payload.txt
+$(openssl rand -base64 32) > payload.txt
 ```
 
 Create a secret with the contents of the signing secret:
@@ -44,6 +67,8 @@ Create a secret with the contents of the signing secret:
 kubectl create secret generic payload-secret \
   --from-file payload-secret=payload.txt -n openfaas
 ```
+
+### mTLS certificates
 
 Generate mTLS certificates for BuildKit and the Pro Builder which are used to encrypt messages between the builder component and BuildKit.
 
@@ -145,7 +170,7 @@ The Pod for the builder contains two containers:
 
 Pass either to the logs command:
 
-```
+```bash
 # Check the logs of the pro-builder API
 kubectl logs -n openfaas \
   deploy/pro-builder -c pro-builder
@@ -159,20 +184,6 @@ kubectl get events -n openfaas
 ```
 
 To test the builder head over to the [Function Builder API Documentation](https://docs.openfaas.com/openfaas-pro/builder/)
-
-## Troubleshooting
-
-### Errors due to permissions
-
-If you see errors about permissions, then you may need to review the options for the securityContext.
-
-See also: [rootless mode](https://github.com/moby/buildkit/blob/master/docs/rootless.md)
-
-### Errors due to authentication
-
-If you're having issues getting your registry authentication to work, then why not try out ttl.sh, a free, ephemeral container registry. [ttl.sh](https://ttl.sh) is a public service run by Replicated, which allows you to push and pull images without authentication.
-
-Once you've seen the building work end to end, get in touch with us and we'll try to help you with your authentication.
 
 ## Push images to Amazon ECR
 
@@ -193,11 +204,23 @@ kubectl create secret generic registry-secret \
 
 > For more details on the configuration see: [amazon-ecr-credentials-helper](https://github.com/awslabs/amazon-ecr-credential-helper#docker)
 
-Create a secret for the AWS credentials. The credentials must have a policy applied that  allows access to Amazon ECR.
+Create a secret for the AWS credentials file. The credentials must have a policy applied that allows access to Amazon ECR.
+
+Create the credentials file:
+```bash
+export AWS_ACCESS_KEY_ID=""
+export AWS_ACCESS_SECRET_KEY=""
+
+cat > ecr-credentials.txt <<EOF
+[default]
+aws_access_key_id=$AWS_ACCESS_KEY_ID
+aws_secret_access_key=$AWS_ACCESS_SECRET_KEY
+EOF
+```
 
 ```
 kubectl create secret generic -n openfaas \
-  aws-ecr-credentials --from-file aws-ecr-credentials=$HOME/ecr-credentials.txt
+  aws-ecr-credentials --from-file aws-ecr-credentials=./ecr-credentials.txt
 ```
 
 Modify your `values.yaml` file accordingly to mount the secret in the Pro Builder.
@@ -226,6 +249,21 @@ Additional pro-builder options in `values.yaml`.
 | `awsCredentialsSecret` | Mount a secret with AWS credentials for pushing images to ECR | `""` |
 
 Specify each parameter using the `--set key=value[,key=value]` argument to `helm install`. See `values.yaml` for the default configuration.
+
+
+## Troubleshooting
+
+### Errors due to permissions
+
+If you see errors about permissions, then you may need to review the options for the securityContext.
+
+See also: [rootless mode](https://github.com/moby/buildkit/blob/master/docs/rootless.md)
+
+### Errors due to authentication
+
+If you're having issues getting your registry authentication to work, then why not try out ttl.sh, a free, ephemeral container registry. [ttl.sh](https://ttl.sh) is a public service run by Replicated, which allows you to push and pull images without authentication.
+
+Once you've seen the building work end to end, get in touch with us and we'll try to help you with your authentication.
 
 ## Removing the pro-builder
 

@@ -29,6 +29,23 @@ spec:
           secretName: basic-auth
       {{- end }}
 
+      {{- if .Values.iam.enabled }}
+      - name: aes-key
+        secret:
+          secretName: aes-key
+      {{- if .Values.iam.dashboardIssuer.clientSecret }}
+      - name: oauth-client-secret
+        secret:
+          secretName: {{ .Values.iam.dashboardIssuer.clientSecret }}
+      {{- end }}
+      {{- end }}
+
+      {{- if .Values.caBundleSecretName }}
+      - name: ca-bundle
+        secret:
+          secretName: {{ .Values.caBundleSecretName }}
+      {{- end }}
+
       - name: license
         secret:
           secretName: openfaas-license
@@ -74,6 +91,32 @@ spec:
           value: {{ .Values.dashboard.publicURL }}
         - name: jwt_mount_path
           value: /var/secrets/dashboard-jwt
+        - name: "debug"
+          value: "{{ .Values.dashboard.logs.debug }}"
+        - name: "log_encoding"
+          value: "{{ .Values.dashboard.logs.format }}"
+        {{- if .Values.iam.enabled }}
+        - name: issuer_key_path
+          value: "/var/secrets/issuer-key/issuer.key"
+        - name: primary_issuer
+          value: {{ .Values.iam.dashboardIssuer.url | quote }}
+        - name: system_issuer
+          value: {{ .Values.iam.systemIssuer.url | quote }}
+        - name: oauth_client_id
+          value: {{ .Values.iam.dashboardIssuer.clientId }}
+        - name: oauth_scopes
+          value: "{{join "," .Values.iam.dashboardIssuer.scopes }}"
+        {{- end }}
+
+        {{ if .Values.caBundleSecretName }}
+        - name: ca_bundle_path
+          value: /var/secrets/ca-bundle/ca.crt
+        {{- end }}
+
+        {{- if .Values.securityContext }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        {{- end }}
 
         volumeMounts:
         {{- if .Values.basic_auth }}
@@ -81,6 +124,18 @@ spec:
           readOnly: true
           mountPath: "/var/secrets/gateway"
         {{- end }}
+
+        {{- if .Values.iam.enabled }}
+        - name: aes-key
+          readOnly: true
+          mountPath: "/var/secrets/dashboard-aes"
+        {{- if .Values.iam.dashboardIssuer.clientSecret}}
+        - name: oauth-client-secret
+          readOnly: true
+          mountPath: "/var/secrets/dashboard-oauth"
+        {{- end}}
+        {{- end}}
+
         - name: license
           readOnly: true
           mountPath: "/var/secrets/license"
@@ -88,6 +143,12 @@ spec:
         - name: dashboard-jwt
           readOnly: true
           mountPath: "/var/secrets/dashboard-jwt"
+        {{- end }}
+
+        {{- if .Values.caBundleSecretName }}
+        - name: ca-bundle
+          readOnly: true
+          mountPath: "/var/secrets/ca-bundle"
         {{- end }}
 
     {{- with .Values.nodeSelector }}

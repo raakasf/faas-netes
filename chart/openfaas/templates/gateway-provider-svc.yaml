@@ -16,9 +16,9 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - name: http
+    - name: provider
       port: 8081
-      targetPort: http
+      targetPort: 8081
       protocol: TCP
   selector:
     app: gateway

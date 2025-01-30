@@ -1,16 +1,17 @@
-faas-netes - Serverless Functions For Kubernetes with OpenFaaS
+faas-netes Community Edition (CE)
 ===========
+
+Serverless Functions For Kubernetes with OpenFaaS
 
 [![Build Status](https://github.com/openfaas/faas-netes/workflows/build/badge.svg?branch=master)](https://github.com/openfaas/faas-netes/actions)
 [![Go Report Card](https://goreportcard.com/badge/github.com/openfaas/faas-netes)](https://goreportcard.com/report/github.com/openfaas/faas-netes)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![OpenFaaS](https://img.shields.io/badge/openfaas-serverless-blue.svg)](https://www.openfaas.com)
 
 ## Introduction
 
-`faas-netes` is an [OpenFaaS provider](https://github.com/openfaas/faas-provider) which enables Kubernetes for [OpenFaaS](https://github.com/openfaas/faas). It's part of a larger stack that brings a cloud-agnostic serverless experience to Kubernetes.
+`faas-netes` is an [OpenFaaS provider](https://github.com/openfaas/faas-provider) which enables Kubernetes for [OpenFaaS](https://github.com/openfaas/faas). It's part of a larger stack that brings a cloud-agnostic serverless experience to Kubernetes. This repository hosts the Community Edition (CE) of the provider, OpenFaaS Standard and OpenFaaS for Enterprises use separate codebases and licensing.
 
-The existing REST API, CLI and UI are fully compatible. With OpenFaaS Pro, you have an optional *operator* mode so that you can manage functions with `kubectl` and a `CustomResource`.
+The existing REST API, CLI and UI are fully compatible. With OpenFaaS Standard/Enterprise, you have an optional *operator* mode so that you can manage functions with `kubectl` and a `CustomResource`.
 
 You can deploy OpenFaaS to any Kubernetes service - whether managed or local, including to OpenShift. You will find any specific instructions and additional links in the documentation.
 
@@ -21,6 +22,7 @@ You can deploy OpenFaaS to any Kubernetes service - whether managed or local, in
 
 ## Highlights
 
+* Free for personal & non-commercial use. Commercial use limited to 60 days, then you [must buy a license](https://openfaas.com/pricing/).
 * Platform for deploying [serverless-style workloads](https://docs.openfaas.com/reference/workloads/) - microservices and functions
 * Native Kubernetes integrations (API and ecosystem)
 * Built-in UI portal
@@ -48,35 +50,31 @@ Commercial options:
 * Multiple namespace support
 * gVisor support and runtimeClass for isolation
 * Affinity and advanced scheduling / security constraints
+* Airgap
+* RBAC/IAM & SSO
+
+Find out more: [OpenFaaS Standard and For Enterprises](https://www.openfaas.com/pricing)
 
 ## Get started
 
-* Tutorial: [Deploy OpenFaaS to Kubernetes with its helm chart](https://docs.openfaas.com/deployment)
+* [Deploy OpenFaaS Pro to Kubernetes with its helm chart](https://docs.openfaas.com/deployment/pro/)
+* [Deploy OpenFaaS CE to Kubernetes with its helm chart](https://docs.openfaas.com/deployment)
 * [Read news and tutorials on the openfaas.com blog](https://www.openfaas.com/blog/)
-* Chat with the community [on OpenFaaS Slack](https://docs.openfaas.com/community)
-
-### The PLONK Stack
-
-OpenFaaS can be used as complete stack for Cloud Native application development called PLONK. The PLONK Stack includes: Prometheus, Linux/Linkerd, OpenFaaS, NATS/Nginx and Kubernetes.
-
-Read more: [Introducing PLONK](https://www.openfaas.com/blog/plonk-stack/).
+* [Meet the community at the weekly Office Hours](https://docs.openfaas.com/community)
 
 ## Technical and operational information
 
 The rest of this document is dedicated to technical and operational information for the controller.
 
-### Operating modes - classic or operator
+### Operating modes - "controller" or operator
 
-There are two modes available for faas-netes, the classic mode is the default.
+There are two modes available for faas-netes, the operator mode is supported for production. The controller mode is legacy and will be removed in a future release. We are unable to support new customers who use the controller mode, and it may not have feature parity with the operator mode.
 
-* Classic mode (aka faas-netes) - includes a REST API,  multiple-namespace support but no Function CRD - available in Community Edition and OpenFaaS Pro/Enteprise
-* Operator mode (aka "The OpenFaaS Operator") - includes a REST API, with a "Function" CRD and multiple-namespace [OpenFaaS Pro/Enterprise](https://openfaas.com/pricing/)
+The controller mode is the only option for OpenFaaS Community Edition (CE).
 
-See also: [README for "The OpenFaaS Operator"](README-OPERATOR.md)
+See also: [How and why you should upgrade to the Function Custom Resource Definition (CRD)](https://www.openfaas.com/blog/upgrade-to-the-function-crd/)
 
-The single faas-netes image and binary contains both modes, switch between one or the other using the helm chart or the flag `-operator=true/false`.
-
-### Configuration of the controller
+### Configuration of this component
 
 faas-netes can be configured with environment variables, but for a full set of options see the [helm chart](./chart/openfaas/).
 
@@ -93,7 +91,6 @@ faas-netes can be configured with environment variables, but for a full set of o
 | `prometheus.resources`      | CPU/Memory resources requests/limits (memory: `512Mi`)                                           |
 | `alertmanager.resources`    | CPU/Memory resources requests/limits (memory: `25Mi`)                                            |
 | `nats.resources`            | CPU/Memory resources requests/limits (memory: `120Mi`)                                           |
-| `faasIdler.resources`       | CPU/Memory resources requests/limits (memory: `64Mi`)                                            |
 | `basicAuthPlugin.resources` | CPU/Memory resources requests/limits (memory: `50Mi`, cpu: `20m`)                                |
 
 ### Readiness checking
@@ -104,26 +101,23 @@ The readiness checking for functions assumes you are using our function watchdog
 
 By default all OpenFaaS functions and services are deployed to the `openfaas` and `openfaas-fn` namespaces. To alter the namespace use the `helm` chart.
 
-### Ingress
+### Ingress & TLS
 
-To configure ingress see the `helm` chart. By default NodePorts are used. These are listed in the [deployment guide](https://docs.openfaas.com/deployment).
-
-By default functions are exposed at `http://gateway:8080/function/NAME`.
-
-You can also use the [IngressOperator to set up custom domains and HTTP paths](https://github.com/openfaas-incubator/ingress-operator)
+* [Configure TLS for the gateway and dashboard](https://docs.openfaas.com/reference/tls-openfaas/)
+* [Configure TLS for functions](https://docs.openfaas.com/reference/tls-functions/)
 
 ### Image pull policy
 
 By default, deployed functions will use an [imagePullPolicy](https://kubernetes.io/docs/concepts/containers/images/#updating-images) of `Always`, which ensures functions using static image tags are refreshed during an update.
-If this is not desired behavior, set the `image_pull_policy` environment variable to an alternative.  `IfNotPresent` is particularly useful when developing locally with minikube.
-In this case, you can set your local environment to [use minikube's docker](https://kubernetes.io/docs/getting-started-guides/minikube/#reusing-the-docker-daemon) so `faas-cli build` builds directly into minikube's image store.
+
+If this is not desired behavior, OpenFaaS Pro customers can set the `image_pull_policy` environment variable to an alternative. `IfNotPresent` is particularly useful when developing locally with minikube. In this case, you can set your local environment to [use minikube's docker](https://kubernetes.io/docs/getting-started-guides/minikube/#reusing-the-docker-daemon) so `faas-cli build` builds directly into minikube's image store.
 `faas-cli push` is unnecessary in this workflow - use `faas-cli build` then `faas-cli deploy`.
 
 Note: When set to `Never`, **only** local (or pulled) images will work.  When set to `IfNotPresent`, function deployments may not be updated when using static image tags.
 
 ## Kubernetes Versions
 
-faas-netes maintainers strive to support as many Kubernetes versions as possible and it is currently compatible with Kubernetes 1.11 and higher. Instructions for OpenShift are also available in the documentation.
+faas-netes maintainers strive to support as many Kubernetes versions as possible and it is currently compatible with Kubernetes 1.19 and higher. Instructions for OpenShift are also available in the documentation.
 
 ## Contributing
 
@@ -139,4 +133,5 @@ Check the contributor guide in `CONTRIBUTING.md` for more details on the workflo
 
 ## License
 
-This project is licensed under the MIT License.
+See the [LICENSE](./LICENSE) file for details.
+

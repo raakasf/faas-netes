@@ -1,6 +1,6 @@
-FROM ghcr.io/openfaas/license-check:0.4.1 as license-check
+FROM ghcr.io/openfaas/license-check:0.4.2 AS license-check
 
-FROM --platform=${BUILDPLATFORM:-linux/amd64} golang:1.19 as build
+FROM --platform=${BUILDPLATFORM:-linux/amd64} golang:1.23 AS build
 
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
@@ -27,10 +27,10 @@ RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
         --ldflags "-s -w \
         -X github.com/openfaas/faas-netes/version.GitCommit=${GIT_COMMIT}\
         -X github.com/openfaas/faas-netes/version.Version=${VERSION}" \
-        -a -installsuffix cgo -o faas-netes .
+        -o faas-netes .
 
-FROM --platform=${TARGETPLATFORM:-linux/amd64} alpine:3.17 as ship
-LABEL org.label-schema.license="MIT" \
+FROM --platform=${TARGETPLATFORM:-linux/amd64} alpine:3.21.0 AS ship
+LABEL org.label-schema.license="OpenFaaS CE EULA - non-commercial" \
       org.label-schema.vcs-url="https://github.com/openfaas/faas-netes" \
       org.label-schema.vcs-type="Git" \
       org.label-schema.name="openfaas/faas-netes" \
@@ -47,8 +47,8 @@ WORKDIR /home/app
 
 EXPOSE 8080
 
-ENV http_proxy      ""
-ENV https_proxy     ""
+ENV http_proxy=""
+ENV https_proxy=""
 
 COPY --from=build /go/src/github.com/openfaas/faas-netes/faas-netes    .
 RUN chown -R app:app ./

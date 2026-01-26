@@ -324,7 +324,7 @@ autoscaler:
 ## To use with port-forwarding, set publicURL to
 ## http://127.0.0.1
 dashboard:
-  image: ghcr.io/openfaasltd/openfaas-dashboard:0.6.4
+  image: ghcr.io/openfaasltd/openfaas-dashboard:0.6.5
 
   # publicURL for the dashboard itself
   # i.e. https://dashboard.example.com

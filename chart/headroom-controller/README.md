@@ -15,6 +15,8 @@ You do not need to use OpenFaaS to install this chart and use the headroom-contr
 
   Obtain a license or trial at https://openfaas.com/pricing
 
+If you're not an OpenFaaS customer, you can [purchase a license here](https://subscribe.openfaas.com/). Click the "Headroom Controller" option. If you intend to run the controller on more than one cluster, email support@openfaas.com for a link for multiple clusters.
+
 ## Demo
 
 Watch a [live demo with the Cluster Autoscaler and K3s](https://www.youtube.com/embed/MHXvhKb6PpA?si=QFEf632Ha3VUESbs):
@@ -35,6 +37,8 @@ helm repo add openfaas https://openfaas.github.io/faas-netes/ && \
 Create the required secret with your OpenFaaS license:
 
 ```bash
+kubectl create ns openfaas
+
 kubectl create secret generic \
   -n default \
   openfaas-license \

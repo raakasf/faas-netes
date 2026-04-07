@@ -36,7 +36,7 @@ spec:
           image: "{{ .Values.image }}"
           imagePullPolicy: {{ .Values.imagePullPolicy }}
           args:
-            - --license-file=/var/secrets/license/license
+            - -license-file=/var/secrets/license/license
 {{- if .Values.metrics.enabled }}
             - --metrics-bind-address=:8080
             - --metrics-secure=false

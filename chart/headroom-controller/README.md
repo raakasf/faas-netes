@@ -15,11 +15,11 @@ You do not need to use OpenFaaS to install this chart and use the headroom-contr
 
   Obtain a license or trial at https://openfaas.com/pricing
 
-If you're not an OpenFaaS customer, you can [purchase a license here](https://subscribe.openfaas.com/). Click the "Headroom Controller" option. If you intend to run the controller on more than one cluster, email support@openfaas.com for a link for multiple clusters.
+If you're not an OpenFaaS Standard or OpenFaaS for Enterprises customer, you can [purchase a license here](https://subscribe.openfaas.com/). Click the "Headroom Controller" option.
 
-Alternatively, edit the following link with `?quantity=N` added to the end:
+A license is required for each cluster/installation.
 
-For instance:
+You can build a direct checkout link as follows, changing `?quantity=N` for instance:
 
 ```
 # 2x clusters:
@@ -47,16 +47,18 @@ helm repo add openfaas https://openfaas.github.io/faas-netes/ && \
 
 ### Install from the chart repository
 
-Create the required secret with your OpenFaaS license:
+Create the required secret with your license:
 
 ```bash
-kubectl create ns openfaas
+kubectl create ns default
 
 kubectl create secret generic \
   -n default \
   openfaas-license \
   --from-file license=$HOME/.openfaas/LICENSE
 ```
+
+> OpenFaaS customers - use your existing license key for the specific environment. If you're not an OpenFaaS customer, use the key you received from LemonSqueezy via email.
 
 Install with defaults:
 

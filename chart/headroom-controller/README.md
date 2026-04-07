@@ -2,6 +2,8 @@
 
 Speed up scaling up and rolling out of workloads by pre-provisioning headroom in your Kubernetes cluster.
 
+This component is licensed for OpenFaaS Standard or Enterprise customers.
+
 ## Prerequisites
 
 You do not need to use OpenFaaS to install this chart and use the headroom-controller. It is a standalone component.
@@ -9,6 +11,9 @@ You do not need to use OpenFaaS to install this chart and use the headroom-contr
 - Kubernetes
 - Helm
 - Some form of autoscaling node group, or Cluster Autoscaler, or Karpenter, etc.
+- An OpenFaaS license
+
+  Obtain a license or trial at https://openfaas.com/pricing
 
 ## Demo
 
@@ -26,6 +31,15 @@ helm repo add openfaas https://openfaas.github.io/faas-netes/ && \
 ```
 
 ### Install from the chart repository
+
+Create the required secret with your OpenFaaS license:
+
+```bash
+kubectl create secret generic \
+  -n default \
+  openfaas-license \
+  --from-file license=$HOME/.openfaas/LICENSE
+```
 
 Install with defaults:
 
@@ -54,6 +68,8 @@ helm upgrade --install headroom-controller \
 
 The chart can also be installed into a custom namespace i.e. `openfaas` or `kube-system` by altering the `--namespace` flag.
 
+If you install into a different namespace, create the `openfaas-license` secret in that namespace first.
+
 ### Install from local chart
 
 If you are working on a patch for the helm chart, you can deploy it directly from a local folder.
@@ -61,7 +77,7 @@ If you are working on a patch for the helm chart, you can deploy it directly fro
 ```bash
 # Clone the repository
 git clone https://github.com/openfaas/faas-netes.git --depth=1
-cd headroom-controller
+cd faas-netes
 
 # Install the chart
 helm upgrade --install headroom-controller \

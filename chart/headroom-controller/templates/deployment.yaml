@@ -22,6 +22,10 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      volumes:
+        - name: openfaas-license
+          secret:
+            secretName: openfaas-license
       serviceAccountName: {{ include "headroom-controller.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
@@ -32,6 +36,7 @@ spec:
           image: "{{ .Values.image }}"
           imagePullPolicy: {{ .Values.imagePullPolicy }}
           args:
+            - --license-file=/var/secrets/license/license
 {{- if .Values.metrics.enabled }}
             - --metrics-bind-address=:8080
             - --metrics-secure=false
@@ -58,6 +63,10 @@ spec:
               port: http
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: openfaas-license
+              readOnly: true
+              mountPath: /var/secrets/license
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

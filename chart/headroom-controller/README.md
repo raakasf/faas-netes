@@ -17,6 +17,19 @@ You do not need to use OpenFaaS to install this chart and use the headroom-contr
 
 If you're not an OpenFaaS customer, you can [purchase a license here](https://subscribe.openfaas.com/). Click the "Headroom Controller" option. If you intend to run the controller on more than one cluster, email support@openfaas.com for a link for multiple clusters.
 
+Alternatively, edit the following link with `?quantity=N` added to the end:
+
+For instance:
+
+```
+# 2x clusters:
+https://subscribe.openfaas.com/checkout/buy/6f00c083-378f-41dd-ab01-aaf2ebfac73f?quantity=2
+
+
+# 3x clusters:
+https://subscribe.openfaas.com/checkout/buy/6f00c083-378f-41dd-ab01-aaf2ebfac73f?quantity=2
+```
+
 ## Demo
 
 Watch a [live demo with the Cluster Autoscaler and K3s](https://www.youtube.com/embed/MHXvhKb6PpA?si=QFEf632Ha3VUESbs):

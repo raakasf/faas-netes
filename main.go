@@ -60,7 +60,9 @@ func main() {
 
 	sha, release := version.GetReleaseInfo()
 	fmt.Printf(`faas-netes - Community Edition (CE)
-Warning: Commercial use limited to 60 days.
+
+WARNING: Commercial use limited to 60 days.
+
 Learn more: https://github.com/openfaas/faas/blob/master/EULA.md
 
 Version: %s Commit: %s
@@ -74,12 +76,6 @@ Version: %s Commit: %s
 	if err != nil {
 		log.Fatalf("Error building kubeconfig: %s", err.Error())
 	}
-
-	kubeconfigQPS := 100
-	kubeconfigBurst := 250
-
-	clientCmdConfig.QPS = float32(kubeconfigQPS)
-	clientCmdConfig.Burst = kubeconfigBurst
 
 	kubeClient, err := kubernetes.NewForConfig(clientCmdConfig)
 	if err != nil {

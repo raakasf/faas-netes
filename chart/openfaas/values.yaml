@@ -64,7 +64,7 @@ functions:
     failureThreshold: 3
 
 gatewayPro:
-  image: ghcr.io/openfaasltd/gateway:0.5.17
+  image: ghcr.io/openfaasltd/gateway:0.5.20
   pprof: false
 
 gateway:
@@ -152,7 +152,7 @@ eventWorker:
 
 # For OpenFaaS Pro and the Function CRD
 operator:
-  image: ghcr.io/openfaasltd/faas-netes:0.5.90
+  image: ghcr.io/openfaasltd/faas-netes:0.5.93
   create: false
   logs:
     debug: false
@@ -199,7 +199,7 @@ operator:
     successThreshold: 1
 
 faasnetesPro:
-  image: ghcr.io/openfaasltd/faas-netes:0.5.90
+  image: ghcr.io/openfaasltd/faas-netes:0.5.93
   logs:
     debug: false
     format: "console"
@@ -209,7 +209,7 @@ faasnetesOem:
 
 # For the Community Edition
 faasnetes:
-  image: ghcr.io/openfaas/faas-netes:0.18.16
+  image: ghcr.io/openfaas/faas-netes:0.18.17
   resources:
     requests:
       memory: "120Mi"
@@ -220,7 +220,7 @@ faasnetes:
 #
 # The Jetstream queue-worker is the default queue-worker for OpenFaaS Pro.
 jetstreamQueueWorker:
-  image: ghcr.io/openfaasltd/jetstream-queue-worker:0.5.6
+  image: ghcr.io/openfaasltd/jetstream-queue-worker:0.5.7
   mode: "static"
   # Enable adaptive concurrency limiting for functions.
   # This setting only takes effect when jetstreamQueueWorker.mode is set to "function".
